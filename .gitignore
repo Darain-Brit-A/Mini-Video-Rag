@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.streamlit/
+
+# Generated one-video artifacts
+data/videos/*
+!data/videos/.gitkeep
+data/transcripts/*
+!data/transcripts/.gitkeep
+data/chunks/*
+!data/chunks/.gitkeep
+vectorstore/*
+!vectorstore/.gitkeep
