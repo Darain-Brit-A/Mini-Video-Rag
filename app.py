@@ -44,6 +44,9 @@ st.markdown(
     .panel { background: white; border: 1px solid var(--line); padding: 1.35rem; }
     .panel-title { font-size: 1.1rem; font-weight: 800; margin-bottom: .25rem; }
     .panel-note { color: var(--muted); font-size: .84rem; margin-bottom: 1rem; }
+    [data-testid='stSlider'] label, [data-testid='stSlider'] p { color: var(--ink) !important; }
+    [data-testid='stTextInput'] input { color: var(--ink) !important; background: #ffffff !important; }
+    [data-testid='stButton'] button { white-space: normal !important; line-height: 1.2 !important; }
     .evidence { border: 1px solid var(--line); border-left: 4px solid var(--teal); background: white; padding: 1.1rem 1.25rem; margin: .75rem 0; }
     .evidence-top { display: flex; justify-content: space-between; gap: 1rem; font: 500 .72rem 'DM Mono', monospace; color: var(--teal); }
     .evidence-text { line-height: 1.65; margin-top: .75rem; }
@@ -101,7 +104,7 @@ with left:
     if uploaded_file:
         st.session_state.video_name = uploaded_file.name
         st.markdown(f'<div class="panel-note">Selected <strong>{html.escape(uploaded_file.name)}</strong></div>', unsafe_allow_html=True)
-        process_clicked = st.button("Build transcript + index  →", type="primary", use_container_width=True)
+        process_clicked = st.button("Build index  →", type="primary", use_container_width=True)
         if process_clicked:
             video_path = VIDEO_DIR / uploaded_file.name
             audio_path = VIDEO_DIR / f"{video_path.stem}.wav"
@@ -146,7 +149,7 @@ with right:
             top_k = st.slider("Evidence chunks (top-k)", min_value=1, max_value=5, value=3, disabled=not ready)
         with action_col:
             st.markdown('<div style="height:28px"></div>', unsafe_allow_html=True)
-            ask_clicked = st.form_submit_button("Retrieve evidence  →", type="primary", use_container_width=True, disabled=not ready)
+            ask_clicked = st.form_submit_button("Retrieve  →", type="primary", use_container_width=True, disabled=not ready)
     if ask_clicked and question.strip():
         st.session_state.evidence = st.session_state.vector_store.search(question.strip(), top_k)
         st.session_state.answer = generate_answer(question.strip(), st.session_state.evidence)
@@ -169,6 +172,9 @@ if st.session_state.evidence:
         sources = ", ".join(f'{item["start_time"]} — {item["end_time"]}' for item in st.session_state.evidence)
         st.markdown(f'<div class="source-line">SOURCES · {sources}</div>', unsafe_allow_html=True)
         st.markdown('<div class="panel-note" style="margin-top:1.6rem">This response is constrained to the retrieved transcript chunks. No outside knowledge is added.</div>', unsafe_allow_html=True)
+
+if st.session_state.transcript and sum(len(str(segment["text"]).split()) for segment in st.session_state.transcript) < 5:
+    st.warning("Only a few spoken words were detected in this video. Try a video with clearer speech before asking content questions.")
 
 if st.session_state.transcript:
     st.markdown('<div class="section-kicker" style="margin-top:2.5rem">05 / Source transcript</div>', unsafe_allow_html=True)
