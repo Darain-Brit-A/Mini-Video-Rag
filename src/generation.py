@@ -11,6 +11,7 @@ REFUSAL = "I could not find enough information about this in the video."
 
 def generate_answer(question: str, evidence: list[dict[str, object]]) -> str:
     """Answer only from evidence; use an extractive fallback without an API key."""
+    # Refusing on weak evidence is the grounding guard against unsupported answers.
     if not evidence or max(float(item["similarity"]) for item in evidence) < 0.25:
         return REFUSAL
 

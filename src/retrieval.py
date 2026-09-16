@@ -19,6 +19,7 @@ class VectorStore:
 
     def build(self, chunks: list[dict[str, object]]) -> None:
         vectors = self.embedding_model.encode([str(chunk["text"]) for chunk in chunks])
+        # Normalized vectors let FAISS inner product rank cosine semantic similarity.
         self.index = faiss.IndexFlatIP(vectors.shape[1])
         self.index.add(vectors)
         self.chunks = chunks
@@ -27,6 +28,7 @@ class VectorStore:
         if self.index is None or not self.chunks:
             raise RuntimeError("Process a video before asking a question.")
         question_vector = self.embedding_model.encode([question])
+        # Top-k retrieval keeps the answer model focused on the strongest evidence.
         scores, positions = self.index.search(question_vector, min(top_k, len(self.chunks)))
         results = []
         for score, position in zip(scores[0], positions[0]):
