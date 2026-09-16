@@ -1,9 +1,11 @@
 """Audio extraction and timestamp-preserving Whisper transcription."""
 
 import json
+import shutil
 from pathlib import Path
 
 import ffmpeg
+import imageio_ffmpeg
 from faster_whisper import WhisperModel
 
 from .utils import format_timestamp
@@ -12,12 +14,20 @@ from .utils import format_timestamp
 def extract_audio(video_path: Path, audio_path: Path) -> Path:
     """Extract mono 16 kHz WAV audio, the format Whisper handles well."""
     audio_path.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg_executable = shutil.which("ffmpeg")
+    if ffmpeg_executable is None:
+        try:
+            ffmpeg_executable = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception as error:
+            raise RuntimeError(
+                "FFmpeg is unavailable. Install FFmpeg or run `pip install -r requirements.txt`."
+            ) from error
     try:
         (
             ffmpeg.input(str(video_path))
             .output(str(audio_path), ac=1, ar=16000, format="wav")
             .overwrite_output()
-            .run(quiet=True)
+            .run(cmd=ffmpeg_executable, quiet=True)
         )
     except ffmpeg.Error as error:
         raise RuntimeError(

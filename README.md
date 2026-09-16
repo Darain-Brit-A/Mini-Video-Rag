@@ -47,7 +47,7 @@ Generated transcript, chunk, index, and video files are ignored by git because t
 ## Technologies Used
 
 - **Streamlit**: simple interactive Python UI.
-- **FFmpeg**: extracts mono 16 kHz WAV audio from the uploaded video.
+- **FFmpeg**: extracts mono 16 kHz WAV audio from the uploaded video. The app prefers system FFmpeg and falls back to the bundled `imageio-ffmpeg` binary.
 - **faster-whisper**: local Whisper speech-to-text with segment timestamps.
 - **sentence-transformers/all-MiniLM-L6-v2**: lightweight local text embedding model.
 - **FAISS**: fast local vector index. Normalized vectors make inner product equivalent to cosine similarity.
@@ -79,13 +79,13 @@ pip install -r requirements.txt
 
 ### 2. Install FFmpeg
 
-FFmpeg must be installed and available on your system PATH. Verify it with:
+The app can use its bundled FFmpeg binary, but a system FFmpeg installation is recommended. Verify a system installation with:
 
 ```powershell
 ffmpeg -version
 ```
 
-On Windows, install a current FFmpeg build, add its `bin` directory to PATH, then open a new terminal. On macOS use `brew install ffmpeg`; on Ubuntu/Debian use `sudo apt update && sudo apt install ffmpeg`.
+On Windows, install a current FFmpeg build, add its `bin` directory to PATH, then open a new terminal. On macOS use `brew install ffmpeg`; on Ubuntu/Debian use `sudo apt update && sudo apt install ffmpeg`. If you skip this step, `imageio-ffmpeg` downloads and supplies a compatible binary after installing the Python requirements.
 
 ### 3. Optional API configuration
 
