@@ -65,7 +65,16 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-for key, default in {"vector_store": None, "transcript": [], "chunks": [], "evidence": [], "answer": "", "last_question": "", "video_name": ""}.items():
+for key, default in {
+    "vector_store": None,
+    "transcript": [],
+    "chunks": [],
+    "evidence": [],
+    "answer": "",
+    "last_question": "",
+    "video_name": "",
+    "detected_language": "en",
+}.items():
     if key not in st.session_state:
         st.session_state[key] = default
 
@@ -81,6 +90,16 @@ with st.sidebar:
         active_class = "step-active" if complete else ""
         st.markdown(f'<div class="step {active_class}"><span class="step-dot">{number}</span>{label}</div>', unsafe_allow_html=True)
     st.divider()
+    st.markdown('<div class="section-kicker" style="color:#c9f17c">Settings</div>', unsafe_allow_html=True)
+    similarity_threshold = st.slider(
+        "Similarity threshold",
+        min_value=0.10,
+        max_value=0.50,
+        value=0.30,
+        step=0.01,
+        help="Minimum cosine similarity required to accept retrieved evidence.",
+    )
+    st.divider()
     st.markdown('<div class="section-kicker" style="color:#c9f17c">System</div>', unsafe_allow_html=True)
     st.markdown(f'<p class="sidebar-copy">Embedding model<br><strong>all-MiniLM-L6-v2</strong><br><br>Retriever<br><strong>FAISS · cosine similarity</strong></p>', unsafe_allow_html=True)
 
@@ -88,6 +107,11 @@ st.markdown(
     '<div class="hero"><div class="hero-copy"><div class="eyebrow">Research console / single video</div><h1>Ask the video.<br><em>See the evidence.</em></h1><p>Turn a 5–10 minute recording into a searchable, timestamped knowledge base. Every answer stays close to the retrieved transcript.</p></div><div class="hero-mark">◈</div></div>',
     unsafe_allow_html=True,
 )
+
+if st.session_state.detected_language and st.session_state.detected_language.lower() != "en":
+    st.warning(
+        f"Detected language: {st.session_state.detected_language} — this app's embedding model is English-only, so retrieval quality will be poor."
+    )
 
 file_label = st.session_state.video_name or "No video loaded"
 video_status = "Indexed and ready" if ready else ("Video selected" if st.session_state.video_name else "Waiting for upload")
@@ -117,9 +141,16 @@ with left:
                     st.write("Extracting audio with FFmpeg")
                     extract_audio(video_path, audio_path)
                     st.write("Transcribing speech with Whisper")
-                    transcript = transcribe_audio(audio_path, os.getenv("WHISPER_MODEL", "small"))
+                    transcript, detected_language = transcribe_audio(audio_path, os.getenv("WHISPER_MODEL", "small"))
                     if not transcript:
-                        raise RuntimeError("Whisper returned no speech segments. Try a clearer video.")
+                        raise RuntimeError(
+                            "Whisper returned no speech segments. Try a clearer video. "
+                            "If the video has background music but no clear speech, VAD may be filtering it out."
+                        )
+                    if detected_language and detected_language.lower() != "en":
+                        st.warning(
+                            f"Detected language: {detected_language} — this app's embedding model is English-only, so retrieval quality will be poor."
+                        )
                     save_transcript(transcript, transcript_path)
                     st.write("Creating overlapping timestamped chunks")
                     chunks = build_chunks(transcript)
@@ -129,6 +160,7 @@ with left:
                     store.build(chunks)
                     store.save(index_path, VECTORSTORE_DIR / f"{video_path.stem}.chunks.json")
                     st.session_state.transcript = transcript
+                    st.session_state.detected_language = detected_language
                     st.session_state.chunks = chunks
                     st.session_state.vector_store = store
                     st.session_state.evidence = []
@@ -152,7 +184,9 @@ with right:
             ask_clicked = st.form_submit_button("Retrieve  →", type="primary", use_container_width=True, disabled=not ready)
     if ask_clicked and question.strip():
         st.session_state.evidence = st.session_state.vector_store.search(question.strip(), top_k)
-        st.session_state.answer = generate_answer(question.strip(), st.session_state.evidence)
+        st.session_state.answer = generate_answer(
+            question.strip(), st.session_state.evidence, threshold=similarity_threshold
+        )
         st.session_state.last_question = question.strip()
         st.rerun()
 

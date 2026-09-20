@@ -1,208 +1,268 @@
 # Mini Video RAG
 
-Mini Video RAG is a beginner-friendly Retrieval-Augmented Generation (RAG) application for **one local 5-10 minute video**. It turns speech into timestamped evidence, embeds that evidence, retrieves the three most semantically similar chunks for a question, and produces an answer using only those retrieved chunks.
+> **Grounded Video Question Answering via Speech Transcription & Semantic Vector Search**
 
-The project intentionally keeps generation simple. The main academic focus is retrieval, embeddings, semantic similarity, timestamps, and grounding.
+Mini Video RAG is a lightweight, local Retrieval-Augmented Generation (RAG) system designed to make single 5–10 minute videos fully searchable. It converts spoken audio into timestamped speech segments, groups them into overlapping contextual chunks, embeds them into dense vector representations, and indexes them with FAISS. When a question is asked, the system retrieves the top-$k$ most semantically relevant moments and generates a strictly grounded answer with precise source timestamp citations.
 
-## Problem Statement
+The project works completely **offline by default** with a local extractive fallback, and optionally supports OpenAI LLMs for natural language synthesis.
 
-Finding a precise answer inside a video normally requires watching the entire recording. Mini Video RAG makes the video searchable by converting its speech into timestamped transcript chunks and using semantic search to find relevant passages.
+---
 
-## Objective
+## Architecture & Data Flow
 
-Demonstrate a complete local RAG pipeline:
+```mermaid
+flowchart TD
+    subgraph Ingestion["1. Ingestion & Indexing Pipeline"]
+        A[Input Video: MP4 / MOV / MKV / AVI / WEBM] -->|FFmpeg| B[Mono 16kHz WAV Audio]
+        B -->|faster-whisper + VAD| C[Timestamped Speech Segments]
+        C -->|Segment-aware sliding window| D[Overlapping Chunks ~150 words]
+        D -->|all-MiniLM-L6-v2| E[Normalized Dense Vectors]
+        E -->|IndexFlatIP| F[(FAISS Vector Store + Metadata)]
+    end
 
-```text
-Video -> audio -> Whisper transcript -> timestamped chunks
-      -> sentence embeddings -> FAISS index
-Question -> question embedding -> top-k similarity retrieval
-         -> retrieved evidence -> grounded answer
+    subgraph QueryPipeline["2. Semantic Retrieval & Grounded Generation"]
+        Q[User Question] -->|all-MiniLM-L6-v2| QV[Question Embedding]
+        QV -->|Cosine Similarity Search| F
+        F -->|Top-k Highest Similarity| R[Retrieved Evidence Chunks]
+        R --> G{Similarity >= Threshold?}
+        G -- No --> REF[Refusal: Insufficient evidence in video]
+        G -- Yes --> H[Grounded Answer Generator]
+        H -->|Optional OpenAI API / Local Extractive Fallback| ANS[Grounded Answer with Source Timestamps]
+    end
 ```
+
+---
+
+## Key Features
+
+- **End-to-End Local Pipeline**: Works out-of-the-box on CPU without mandatory third-party API keys or external subscriptions.
+- **Accurate Speech-to-Text**: Employs `faster-whisper` (CTranslate2 backend) with integrated Voice Activity Detection (VAD) and automatic language detection.
+- **Segment-Aware Timestamp Chunking**: Groups adjacent speech segments into ~150-word chunks with sliding overlap while preserving original utterance boundaries.
+- **Semantic Vector Indexing**: Uses `sentence-transformers/all-MiniLM-L6-v2` with $L_2$-normalized embeddings and FAISS `IndexFlatIP` for cosine similarity matching.
+- **Grounded & Hallucination-Resistant**: Responses are strictly constrained to retrieved transcript segments. If similarity scores fall below the configurable threshold, the system explicitly refuses to answer.
+- **Modern Streamlit Dashboard**: Includes real-time pipeline status, progress indicators, cosine similarity score bars, collapsible full-transcript explorer, and adjustable runtime parameters.
+- **Synthetic Test Generator**: Includes a built-in generator script (`generate_sample_video.py`) to create sample speech videos for rapid testing.
+
+---
 
 ## Project Structure
 
 ```text
-project/
-├── app.py
-├── requirements.txt
-├── .env.example
-├── README.md
+mini-video-rag/
+├── app.py                      # Streamlit interactive web dashboard
+├── generate_sample_video.py    # Test video generator with synthesized speech
+├── requirements.txt            # Python dependencies
+├── .env.example                # Environment configuration template
+├── .env                        # Local environment variables (git-ignored)
+├── README.md                   # Project documentation
 ├── src/
-│   ├── __init__.py
-│   ├── transcription.py
-│   ├── chunking.py
-│   ├── embeddings.py
-│   ├── retrieval.py
-│   ├── generation.py
-│   └── utils.py
-├── data/
-│   ├── videos/
-│   ├── transcripts/
-│   └── chunks/
-└── vectorstore/
+│   ├── __init__.py             # Package marker
+│   ├── transcription.py        # FFmpeg audio extraction & faster-whisper transcription
+│   ├── chunking.py             # Timestamp-preserving overlapping text chunking
+│   ├── embeddings.py           # Lazy-loaded SentenceTransformer embedding wrapper
+│   ├── retrieval.py            # FAISS IndexFlatIP store & top-k similarity search
+│   ├── generation.py           # Grounded answer generation (OpenAI / extractive fallback)
+│   └── utils.py                # Directory setup and timestamp formatting helpers
+├── data/                       # Local data storage (git-ignored)
+│   ├── videos/                 # Uploaded video files and extracted WAV audio
+│   ├── transcripts/            # Raw Whisper JSON transcripts with timestamps
+│   └── chunks/                 # Processed JSON chunk files
+└── vectorstore/                # FAISS vector indices and chunk mappings (git-ignored)
 ```
 
-Generated transcript, chunk, index, and video files are ignored by git because this demo is designed for one local video at a time.
+---
 
-## Technologies Used
+## Prerequisites
 
-- **Streamlit**: simple interactive Python UI.
-- **FFmpeg**: extracts mono 16 kHz WAV audio from the uploaded video. The app prefers system FFmpeg and falls back to the bundled `imageio-ffmpeg` binary.
-- **faster-whisper**: local Whisper speech-to-text with segment timestamps.
-- **sentence-transformers/all-MiniLM-L6-v2**: lightweight local text embedding model.
-- **FAISS**: fast local vector index. Normalized vectors make inner product equivalent to cosine similarity.
-- **OpenAI API (optional)**: improves answer wording while receiving only retrieved evidence.
+- **Python**: Version `3.10` or higher.
+- **FFmpeg**:
+  - The application automatically detects system `ffmpeg` on PATH.
+  - If system FFmpeg is not installed, the bundled `imageio-ffmpeg` package will automatically supply a compatible binary.
 
-## Installation
+---
 
-### 1. Create and activate a virtual environment
+## Installation & Setup
 
-Windows PowerShell:
-
-```powershell
-cd "d:\Christ\5th Semister\amagi\project"
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-macOS/Linux:
+### 1. Clone or Open the Repository
 
 ```bash
 cd mini-video-rag
+```
+
+### 2. Create and Activate a Virtual Environment
+
+**On Windows (PowerShell):**
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+**On macOS / Linux:**
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
+```
+
+### 3. Install Dependencies
+
+```bash
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 2. Install FFmpeg
+### 4. Configure Environment Variables (Optional)
 
-The app can use its bundled FFmpeg binary, but a system FFmpeg installation is recommended. Verify a system installation with:
+Copy `.env.example` to create your local `.env` file:
 
-```powershell
-ffmpeg -version
-```
-
-On Windows, install a current FFmpeg build, add its `bin` directory to PATH, then open a new terminal. On macOS use `brew install ffmpeg`; on Ubuntu/Debian use `sudo apt update && sudo apt install ffmpeg`. If you skip this step, `imageio-ffmpeg` downloads and supplies a compatible binary after installing the Python requirements.
-
-### 3. Optional API configuration
-
-Copy `.env.example` to `.env` and add `OPENAI_API_KEY` if you want a concise LLM-written answer:
-
+**Windows (PowerShell):**
 ```powershell
 Copy-Item .env.example .env
 ```
 
-The API is optional. Without a key, the app uses an extractive fallback that quotes the best retrieved transcript chunk. The fallback never uses general knowledge.
+**macOS / Linux:**
+```bash
+cp .env.example .env
+```
 
-## Run the Application
+Edit `.env` to configure optional settings:
 
-From the activated virtual environment:
+```env
+# Optional: Enables natural language answer synthesis via OpenAI
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4o-mini
 
-```powershell
+# Optional: Local model configurations
+WHISPER_MODEL=small
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+```
+
+> **Note**: An OpenAI API key is **not required**. Without a key, the system uses an extractive fallback that returns the exact verbatim transcript passage matching the question.
+
+---
+
+## Quickstart: Generate a Sample Video
+
+If you do not have a video on hand, run the included sample generator script:
+
+```bash
+python generate_sample_video.py
+```
+
+This creates `data/videos/sample_lecture.mp4` containing synthesized speech on AI and RAG topics, ready for immediate testing.
+
+---
+
+## Running the Application
+
+Launch the Streamlit dashboard:
+
+```bash
 streamlit run app.py
 ```
 
-Open the local URL shown by Streamlit, normally `http://localhost:8501`.
+Once started, open your browser at `http://localhost:8501`.
 
-## How to Use It
+---
 
-1. Upload one MP4, MOV, MKV, AVI, or WEBM video, ideally 5-10 minutes long.
-2. Click **Transcribe and build retrieval index**.
-3. Wait while audio is extracted, Whisper transcribes the speech, chunks are created, and embeddings are indexed.
-4. Review the readable timestamped transcript.
-5. Ask a question and choose the top-k value. The default is 3.
-6. Inspect every retrieved chunk, timestamp, and similarity score before reading the grounded answer.
+## How to Use the App
 
-The first run downloads local Whisper and embedding model files, so it can take several minutes and use additional disk space.
+1. **Upload Video**: Select a video (`.mp4`, `.mov`, `.mkv`, `.avi`, `.webm`), ideally 5–10 minutes long.
+2. **Build Retrieval Index**: Click **Build index →**. The app extracts audio, runs Whisper speech recognition, builds text chunks, computes dense embeddings, and stores the FAISS index.
+3. **Inspect Transcripts & Metrics**: Review the total indexed chunks, language detection output, and expand the **Source transcript** section to browse timestamped speech segments.
+4. **Ask Questions**: Type a question regarding the video content (e.g., *"What problem does this method solve?"*).
+5. **Adjust Parameters**:
+   - **Top-k Slider**: Select how many chunks to retrieve (default: `3`).
+   - **Similarity Threshold** (Sidebar): Adjust the cutoff score (default: `0.30`) below which the system refuses unsupported queries.
+6. **Review Grounded Evidence**: Inspect the retrieved chunks ranked by cosine similarity, visual similarity progress bars, and the grounded response with timestamp citations.
 
-## How Each RAG Component Works
+---
 
-### Transcription
+## How Each Component Works
 
-`src/transcription.py` extracts audio with FFmpeg and passes it to faster-whisper. Each non-empty speech segment keeps numeric `start` and `end` seconds plus display timestamps such as `00:02:14`.
+### 1. Audio Extraction & Transcription (`src/transcription.py`)
+- Extracts a single-channel 16 kHz WAV audio stream using FFmpeg.
+- Runs `faster-whisper` with Voice Activity Detection (`vad_filter=True`) to suppress silent segments.
+- Formats every segment with start/end float seconds and formatted `HH:MM:SS` display timestamps.
 
-### Timestamped Chunking
+### 2. Timestamped Chunking (`src/chunking.py`)
+- Accumulates consecutive speech segments until reaching approximately 150 words.
+- Preserves segment integrity without splitting individual speech segments across chunks.
+- Applies a 1-segment sliding overlap to maintain conversational context across chunk boundaries.
 
-`src/chunking.py` combines nearby Whisper segments until a chunk is approximately 150 words. It never splits an individual Whisper segment and carries the last segment into the next chunk as a small overlap. Each chunk stores `chunk_id`, `start_time`, `end_time`, and `text`.
+### 3. Sentence Embeddings (`src/embeddings.py`)
+- Uses `sentence-transformers/all-MiniLM-L6-v2` to map chunks and user questions into 384-dimensional dense vectors.
+- Embeddings are $L_2$-normalized so that inner product calculations represent exact cosine similarities.
 
-### Embeddings
+### 4. Vector Storage & Semantic Retrieval (`src/retrieval.py`)
+- Initializes an in-memory FAISS `IndexFlatIP` index.
+- Encodes incoming user questions and performs vector search against chunk embeddings.
+- Returns the top-$k$ closest chunks ranked by similarity score.
 
-`src/embeddings.py` converts each chunk into a numeric vector. Similar meanings produce vectors that are close together even when the exact words differ. The same model embeds the user question, which makes a semantic comparison possible.
+### 5. Grounded Generation (`src/generation.py`)
+- Enforces strict grounding: only the top-$k$ retrieved chunks are provided as context.
+- **With `OPENAI_API_KEY`**: Prompts the LLM with `temperature=0` and a system guardrail prohibiting speculation outside the transcript context.
+- **Without API Key (Fallback)**: Extracts and formats the highest-scoring passage with its timestamp range.
+- **Guardrail**: If the top similarity score is below the threshold or evidence is insufficient, returns an explicit refusal:
+  > *"I could not find enough information about this in the video."*
 
-### Retrieval
+---
 
-`src/retrieval.py` stores chunk vectors in a FAISS `IndexFlatIP` index. Since vectors are normalized, the inner product is cosine similarity. A question embedding is compared with every chunk and the highest-scoring `top_k` chunks are returned. The UI displays the score and timestamp so retrieval quality is visible.
+## Configuration Reference
 
-### Grounded Generation
+| Variable | Default Value | Description |
+|---|---|---|
+| `OPENAI_API_KEY` | *(Empty)* | Optional OpenAI API key for LLM-based answer generation. |
+| `OPENAI_MODEL` | `gpt-4o-mini` | OpenAI model identifier used for generation. |
+| `WHISPER_MODEL` | `small` | Faster-Whisper model size (`tiny`, `base`, `small`, `medium`, `large-v3`). |
+| `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Hugging Face embedding model path or identifier. |
 
-`src/generation.py` receives only the retrieved chunks. With `OPENAI_API_KEY`, it instructs the selected model to answer only from that evidence and to refuse when the evidence is insufficient. Without a key, it quotes the best-scoring chunk. A low-similarity query returns:
+---
 
-> I could not find enough information about this in the video.
+## Evaluation Methodology
 
-This design prevents the answer step from silently searching the internet or relying on unrelated model knowledge.
+To evaluate retrieval and grounding performance for academic or benchmark purposes:
 
-## Example Questions
+1. **Test Dataset**: Prepare 5–10 representative questions with known answer timestamps in the video.
+2. **Metrics**:
+   - **Recall@k**: Percentage of questions where the ground-truth video timestamp is present within the top-$k$ retrieved chunks.
+   - **Top-1 Accuracy**: Proportion of questions where the highest-ranked chunk directly answers the query.
+   - **Cosine Similarity Distribution**: Comparison of similarity scores for relevant queries versus out-of-domain queries.
 
-Questions should be answerable from the uploaded video, for example:
+### Sample Evaluation Table
 
-- What is the main topic of the video?
-- What example did the speaker give about cloud computing?
-- Which steps were described in the process?
-- What problem does the speaker say this method solves?
-- What conclusion was given at the end?
+| Question | Ground Truth Timestamp | Top-1 Retrieved Timestamp | Top-3 Contains Answer? | Top-1 Similarity | Grounded Correctly? |
+|---|---|---|---|---|---|
+| *What is the main topic?* | `00:00:15` | `00:00:14 - 00:00:48` | Yes | 0.742 | Yes |
+| *How does FAISS work?* | `00:02:10` | `00:02:05 - 00:02:40` | Yes | 0.685 | Yes |
+| *What is quantum computing?* | *(Not in video)* | `00:01:20 - 00:01:50` | No | 0.184 | Refused (Passed) |
 
-## Example Output
+---
 
-```text
-Question: What did the speaker say about cloud computing?
+## Viva / Academic Presentation Guide
 
-Retrieved Evidence:
-1. 00:02:14 - 00:02:48 | Similarity: 0.734
-2. 00:04:03 - 00:04:35 | Similarity: 0.612
-3. 00:06:12 - 00:06:39 | Similarity: 0.541
+| Concept | Explanation |
+|---|---|
+| **What is RAG?** | Retrieval-Augmented Generation enhances generative AI by retrieving factual context from an external data source (e.g. video transcripts) before generating an answer. |
+| **Why use dense embeddings over keyword search (BM25)?** | Embeddings capture semantic meaning and intent, allowing queries to match relevant video moments even if they do not share identical vocabulary. |
+| **Why normalize vectors for FAISS `IndexFlatIP`?** | For unit vectors, the inner product $\mathbf{u} \cdot \mathbf{v}$ is mathematically identical to cosine similarity: $\frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\|\|\mathbf{v}\|}$, eliminating the need for expensive division during search. |
+| **Why store timestamps in chunks?** | Timestamps provide verifiability and auditability, allowing users to jump directly to the video timestamp where the statement was made. |
+| **How is hallucination prevented?** | By strictly limiting the LLM context to retrieved chunks, enforcing a zero-temperature prompt, and refusing to answer when similarity scores fall below the threshold. |
 
-Grounded Answer:
-According to the video (00:02:14 - 00:02:48), the relevant passage says: "..."
+---
 
-Sources: 00:02:14 - 00:02:48, 00:04:03 - 00:04:35, 00:06:12 - 00:06:39
-```
+## Troubleshooting
 
-## Retrieval Evaluation
+- **`RuntimeError: FFmpeg is unavailable`**:
+  Ensure `imageio-ffmpeg` is installed (`pip install imageio-ffmpeg`) or install system FFmpeg and verify with `ffmpeg -version`.
+- **First run is slow**:
+  The first execution downloads Whisper and SentenceTransformer models locally. Subsequent runs use cached weights.
+- **Language Warning**:
+  The default `all-MiniLM-L6-v2` embedding model is optimized for English. For multilingual videos, set `EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` in `.env`.
+- **No speech segments found**:
+  Verify the video has an audible voice track. Audio tracks with heavy background noise or music only may be filtered out by VAD.
 
-For a simple academic evaluation, prepare 5-10 questions whose answers are known from different parts of the video. For each question, record:
+---
 
-| Question | Expected timestamp | Retrieved top-1 timestamp | Top-3 contains answer? | Best score |
-|---|---|---|---|---|
-| Question 1 | 00:01:20 | 00:01:18 | Yes/No | 0.00 |
+## License
 
-A useful measure is **Recall@3**: the percentage of questions where at least one of the top three retrieved chunks contains the expected answer. Also inspect false positives, low scores, and whether a small wording change alters retrieval. This demonstrates semantic similarity rather than just keyword matching.
-
-## Limitations
-
-- The app intentionally supports one video and one local process at a time.
-- CPU transcription can be slow, especially with the `small` Whisper model.
-- Automatic speech recognition can make errors with accents, noise, or overlapping speakers.
-- Similarity scores are ranking signals, not probabilities of correctness.
-- The fallback answer is intentionally simple and extractive.
-- There is no speaker diarization, video-frame understanding, authentication, or production database.
-
-## Future Improvements
-
-- Add a model-size selector and GPU support.
-- Add speaker labels and better sentence-aware chunk boundaries.
-- Add a small evaluation form that calculates Recall@k automatically.
-- Add a transcript search view and clickable timestamps.
-- Support multiple videos with separate indexes.
-- Add citation-aware answer formatting and answer confidence checks.
-
-## College Presentation Notes
-
-- **Why embeddings?** They represent the meaning of text as vectors, allowing a question and a relevant passage to match even when they do not share exact keywords.
-- **How does retrieval work?** The question is embedded, compared with all chunk embeddings, and the highest cosine-similarity chunks are selected.
-- **Why store timestamps?** Timestamps let a user verify the answer against the exact part of the source video and make the result useful for navigation.
-- **What does top-k mean?** `k` is the number of highest-scoring chunks returned for the question. The default top-k is 3.
-- **How does grounding prevent unsupported answers?** The answer step receives only retrieved transcript evidence and has an explicit refusal when that evidence does not contain the answer.
-- **Why is this RAG?** It retrieves relevant external context from the video first, then augments answer generation with that context. The retrieval and generation stages together are Retrieval-Augmented Generation.
+This project is open-source and intended for academic, research, and demonstration purposes.

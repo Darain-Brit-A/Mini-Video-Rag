@@ -9,15 +9,23 @@ load_dotenv()
 REFUSAL = "I could not find enough information about this in the video."
 
 
-def generate_answer(question: str, evidence: list[dict[str, object]]) -> str:
+def generate_answer(
+    question: str, evidence: list[dict[str, object]], threshold: float = 0.30
+) -> str:
     """Answer only from evidence; use an extractive fallback without an API key."""
+    best_score = max((float(item.get("similarity", 0.0)) for item in evidence), default=0.0)
+    refusal_message = (
+        f"I could not find enough information about this in the video "
+        f"(best match: {best_score:.2f}, threshold: {threshold:.2f})."
+    )
+
     # Refusing on weak evidence is the grounding guard against unsupported answers.
     if (
         not evidence
-        or max(float(item["similarity"]) for item in evidence) < 0.30
-        or max(len(str(item["text"]).split()) for item in evidence) < 5
+        or best_score < threshold
+        or max((len(str(item["text"]).split()) for item in evidence), default=0) < 5
     ):
-        return REFUSAL
+        return refusal_message
 
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if api_key:
@@ -36,13 +44,16 @@ def generate_answer(question: str, evidence: list[dict[str, object]]) -> str:
                         "role": "system",
                         "content": (
                             "Answer using only the transcript evidence supplied by the user. "
-                            f"If it does not contain the answer, say exactly: {REFUSAL}"
+                            f"If it does not contain the answer, say exactly: {refusal_message}"
                         ),
                     },
                     {"role": "user", "content": f"Question: {question}\nEvidence:\n{context}"},
                 ],
             )
-            return response.choices[0].message.content.strip()
+            ans = response.choices[0].message.content.strip()
+            if REFUSAL in ans:
+                return refusal_message
+            return ans
         except Exception:
             pass
 
